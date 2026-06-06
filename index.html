@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Video Scene</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .scene {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            cursor: pointer;
+        }
+
+        .scene.active {
+            display: block;
+        }
+
+        #cover {
+            background-image: url('cover.png');
+        }
+
+        #sceneOne {
+            background-image: url('Scene one.jpg');
+        }
+
+        #sceneTwo {
+            background-image: url('scene two.png');
+        }
+
+        .lottery {
+            position: absolute;
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 80px;
+            height: auto;
+            cursor: grab;
+            z-index: 10;
+            user-select: none;
+            pointer-events: auto;
+        }
+
+        .lottery.dragging {
+            cursor: grabbing;
+            z-index: 20;
+        }
+
+        .video-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            display: none;
+        }
+
+        .video-container.active {
+            display: block;
+        }
+
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .title-bar {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 40px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 25px;
+            z-index: 15;
+            pointer-events: none;
+        }
+
+        .title-bar span {
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+        }
+
+        .control-btn {
+            padding: 10px 25px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .control-btn:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        .control-btn.recording {
+            background: rgba(255, 0, 0, 0.7);
+        }
+
+        .hint-text {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="cover" class="scene active" onclick="showSceneOne()"></div>
+    
+    <audio id="backgroundMusic" loop volume="0.3">
+        <source src="music.mp3" type="audio/mpeg">
+    </audio>
+
+    <div class="hint-text" id="hintText">点击封面开始体验</div>
+    <div class="controls">
+        <button class="control-btn" id="musicBtn" onclick="toggleMusic()">开启音乐</button>
+        <button class="control-btn" id="recordBtn" onclick="toggleRecording()">开始录屏</button>
+    </div>
+
+    <div id="sceneOne" class="scene" onclick="handleSceneOneClick(event)">
+        <div class="title-bar"><span>拖拽彩票，点亮善意的路</span></div>
+        <img id="lottery1" class="lottery" src="lottery1.png" alt="Lottery 1">
+        <div id="videoContainer1" class="video-container">
+            <video id="video1" src="video1.mp4" muted playsinline></video>
+        </div>
+    </div>
+
+    <div id="sceneTwo" class="scene" onclick="handleSceneTwoClick(event)">
+        <div class="title-bar"><span>拖拽彩票，点亮善意的路</span></div>
+        <img id="lottery2" class="lottery" src="lottery2.png" alt="Lottery 2">
+        <div id="videoContainer2" class="video-container">
+            <video id="video2" src="video2.mp4" muted playsinline></video>
+        </div>
+    </div>
+
+    <script>
+        const cover = document.getElementById('cover');
+        const sceneOne = document.getElementById('sceneOne');
+        const sceneTwo = document.getElementById('sceneTwo');
+        const lottery1 = document.getElementById('lottery1');
+        const lottery2 = document.getElementById('lottery2');
+        const videoContainer1 = document.getElementById('videoContainer1');
+        const videoContainer2 = document.getElementById('videoContainer2');
+        const video1 = document.getElementById('video1');
+        const video2 = document.getElementById('video2');
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        const musicBtn = document.getElementById('musicBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const hintText = document.getElementById('hintText');
+
+        let isDragging1 = false;
+        let isDragging2 = false;
+        let video1Played = false;
+        let video2Played = false;
+        let isMusicPlaying = false;
+        let isRecording = false;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+
+        function showSceneOne() {
+            cover.classList.remove('active');
+            sceneOne.classList.add('active');
+            video1Played = false;
+            hintText.textContent = '拖拽彩票触发视频，视频播放完毕后点击进入下一场景';
+            
+            if (!isMusicPlaying) {
+                backgroundMusic.play().then(() => {
+                    isMusicPlaying = true;
+                    musicBtn.textContent = '关闭音乐';
+                }).catch(e => {
+                    console.log('音乐播放失败:', e);
+                });
+            }
+        }
+
+        function showSceneTwo() {
+            sceneOne.classList.remove('active');
+            videoContainer1.classList.remove('active');
+            video1.pause();
+            video1.currentTime = 0;
+            sceneTwo.classList.add('active');
+            video2Played = false;
+            hintText.textContent = '拖拽彩票触发视频，视频播放完毕后点击返回封面';
+        }
+
+        function goToCover() {
+            sceneTwo.classList.remove('active');
+            videoContainer2.classList.remove('active');
+            video2.pause();
+            video2.currentTime = 0;
+            cover.classList.add('active');
+            hintText.textContent = '点击封面开始体验';
+        }
+
+        function handleSceneOneClick(event) {
+            if (video1Played && !videoContainer1.classList.contains('active')) {
+                showSceneTwo();
+            }
+        }
+
+        function handleSceneTwoClick(event) {
+            if (video2Played && !videoContainer2.classList.contains('active')) {
+                goToCover();
+            }
+        }
+
+        function toggleMusic() {
+            if (isMusicPlaying) {
+                backgroundMusic.pause();
+                musicBtn.textContent = '开启音乐';
+            } else {
+                backgroundMusic.play().catch(e => {
+                    console.log('自动播放被阻止，请先与页面交互');
+                });
+                musicBtn.textContent = '关闭音乐';
+            }
+            isMusicPlaying = !isMusicPlaying;
+        }
+
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { displaySurface: 'monitor' },
+                    audio: true
+                });
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+                recordedChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'recording_' + Date.now() + '.webm';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recordBtn.textContent = '停止录屏';
+                recordBtn.classList.add('recording');
+            } catch (e) {
+                console.error('录屏失败:', e);
+                alert('录屏启动失败，请确保已授权屏幕录制权限');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                isRecording = false;
+                recordBtn.textContent = '开始录屏';
+                recordBtn.classList.remove('recording');
+            }
+        }
+
+        lottery1.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            isDragging1 = true;
+            lottery1.classList.add('dragging');
+            const rect = lottery1.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+
+            function onMouseMove(e) {
+                if (!isDragging1) return;
+                e.stopPropagation();
+                lottery1.style.left = (e.clientX - offsetX) + 'px';
+                lottery1.style.top = (e.clientY - offsetY) + 'px';
+                lottery1.style.transform = 'none';
+            }
+
+            function onMouseUp(e) {
+                isDragging1 = false;
+                lottery1.classList.remove('dragging');
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                
+                videoContainer1.classList.add('active');
+                video1.currentTime = 0;
+                video1.play();
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        video1.addEventListener('ended', function() {
+            videoContainer1.classList.remove('active');
+            video1Played = true;
+        });
+
+        lottery2.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            isDragging2 = true;
+            lottery2.classList.add('dragging');
+            const rect = lottery2.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+
+            function onMouseMove(e) {
+                if (!isDragging2) return;
+                e.stopPropagation();
+                lottery2.style.left = (e.clientX - offsetX) + 'px';
+                lottery2.style.top = (e.clientY - offsetY) + 'px';
+                lottery2.style.transform = 'none';
+            }
+
+            function onMouseUp(e) {
+                isDragging2 = false;
+                lottery2.classList.remove('dragging');
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                
+                videoContainer2.classList.add('active');
+                video2.currentTime = 0;
+                video2.play();
+            }
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        video2.addEventListener('ended', function() {
+            videoContainer2.classList.remove('active');
+            video2Played = true;
+        });
+    </script>
+</body>
+</html>
